@@ -1,0 +1,172 @@
+"""地图服务API路由"""
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from ...models.schemas import (
+    POISearchResponse,
+    RouteRequest,
+    RouteResponse,
+    WeatherResponse
+)
+from ...services.amap_service import get_amap_service
+from .auth import get_current_user
+
+router = APIRouter(prefix="/map", tags=["地图服务"])
+
+
+@router.get(
+    "/poi",
+    response_model=POISearchResponse,
+    summary="搜索POI",
+    description="根据关键词搜索POI(兴趣点)"
+)
+def search_poi(
+    keywords: str = Query(..., description="搜索关键词", examples=["故宫"]),
+    city: str = Query(..., description="城市", examples=["北京"]),
+    citylimit: bool = Query(True, description="是否限制在城市范围内"),
+    username: str = Depends(get_current_user)
+):
+    """
+    搜索POI
+    
+    Args:
+        keywords: 搜索关键词
+        city: 城市
+        citylimit: 是否限制在城市范围内
+        
+    Returns:
+        POI搜索结果
+    """
+    try:
+        # 获取服务实例
+        service = get_amap_service()
+        
+        # 搜索POI
+        pois = service.search_poi(keywords, city, citylimit)
+        
+        return POISearchResponse(
+            success=True,
+            message="POI搜索成功",
+            data=pois
+        )
+        
+    except Exception as e:
+        print(f"❌ POI搜索失败: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="POI搜索失败"
+        )
+
+
+@router.get(
+    "/weather",
+    response_model=WeatherResponse,
+    summary="查询天气",
+    description="查询指定城市的天气信息"
+)
+def get_weather(
+    city: str = Query(..., description="城市名称", examples=["北京"]),
+    username: str = Depends(get_current_user)
+):
+    """
+    查询天气
+    
+    Args:
+        city: 城市名称
+        
+    Returns:
+        天气信息
+    """
+    try:
+        # 获取服务实例
+        service = get_amap_service()
+        
+        # 查询天气
+        weather_info = service.get_weather(city)
+        
+        return WeatherResponse(
+            success=True,
+            message="天气查询成功",
+            data=weather_info
+        )
+        
+    except Exception as e:
+        print(f"❌ 天气查询失败: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="天气查询失败"
+        )
+
+
+@router.post(
+    "/route",
+    response_model=RouteResponse,
+    summary="规划路线",
+    description="规划两点之间的路线"
+)
+def plan_route(request: RouteRequest, username: str = Depends(get_current_user)):
+    """
+    规划路线
+    
+    Args:
+        request: 路线规划请求
+        
+    Returns:
+        路线信息
+    """
+    try:
+        # 获取服务实例
+        service = get_amap_service()
+        
+        # 规划路线
+        route_info = service.plan_route(
+            origin_address=request.origin_address,
+            destination_address=request.destination_address,
+            origin_city=request.origin_city,
+            destination_city=request.destination_city,
+            route_type=request.route_type
+        )
+        
+        if route_info is None:
+            return RouteResponse(
+                success=False,
+                message="未获取到可用路线信息",
+                data=None
+            )
+
+        return RouteResponse(
+            success=True,
+            message="路线规划成功",
+            data=route_info
+        )
+        
+    except Exception as e:
+        print(f"❌ 路线规划失败: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="路线规划失败"
+        )
+
+
+@router.get(
+    "/health",
+    summary="健康检查",
+    description="检查地图服务是否正常"
+)
+async def health_check():
+    """健康检查"""
+    try:
+        # 检查服务是否可用
+        service = get_amap_service()
+        
+        return {
+            "status": "healthy",
+            "service": "map-service",
+            "mcp_tools_count": service._get_available_tools_count()
+        }
+    except Exception as e:
+        # 健康检查是匿名可访问的，异常细节只进服务端日志
+        print(f"❌ 地图服务健康检查失败: {type(e).__name__}: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail="服务不可用"
+        )
